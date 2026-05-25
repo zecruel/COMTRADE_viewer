@@ -603,11 +603,12 @@
                 let value = NaN;
                 if (an_len < 3) {
                   value = view.getInt16(offset, true); // 'binary' type
-                  if (value == -0x7fff) value = NaN; // verify if is valid
+                  //if (value == -0x7fff) value = NaN; // verify if is valid
                 } else {
                   value = view.getInt32(offset, true); // 'binary32' type
-                  if (value == -0x7fffffff) value = NaN; // verify if is valid
-                  else if (float_dat) value = view.getFloat32(offset, true);  // 'float32' type
+                  //if (value == -0x7fffffff) value = NaN; // verify if is valid
+                  //else 
+					if (float_dat) value = view.getFloat32(offset, true);  // 'float32' type
                 }
                   
                 osc_obj.data[i][j] = osc_obj.channels[j-2].a * value + osc_obj.channels[j-2].b
