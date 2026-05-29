@@ -16,7 +16,7 @@
     <h4 style="text-align:center;color:navy">by Zecruel - MIT licence - 2026</h4>
     <div style="display: flex;justify-content: center;align-items: center;">
       <label for="fileInput">Load files:</label>
-      <input type="file" id="fileInput" accept=".cfg,.dat" multiple>
+      <input type="file" id="fileInput" accept=".cfg,.dat,.pl4" multiple>
     </div>
   </div>
   <div id="recs" style="background-color:darkseagreen;height:180px"></div>
@@ -62,6 +62,13 @@
     let ch_idx = 0; // current channel index
     let osc = {}; // main record object
     let comp_idx = 1; // id for composed calc
+    
+    const metricPrefixes = {
+      "-24": "y", "-21": "z", "-18": "a", "-15": "f", "-12": "p",
+      "-9": "n", "-6": "µ", "-3": "m", "0": "",
+      "3": "k", "6": "M", "9": "G", "12": "T",
+      "15": "P", "18": "E", "21": "Z", "24": "Y"
+  };
     
     // init plot chart object
     let plot_output = echarts.init(document.getElementById('plot_container'), 
@@ -233,7 +240,18 @@
                 // time axis
           xAxes.push({gridIndex: count, name: 't(s)', minorTick: {show: true}, minorSplitLine: {show: true}});
                 // y axis - show channel unit and values marks
-          yAxes.push({gridIndex: count, name: ch.un, minorTick: {show: true}, minorSplitLine: {show: true}});
+          yAxes.push({gridIndex: count, name: ch.un, minorTick: {show: true}, minorSplitLine: {show: true},
+            // engineering format
+            axisLabel: { formatter: function (value) {
+              const digits = 3;
+              if (value === 0) return "0";
+              const exponent = Math.floor(Math.log10(Math.abs(value)) / 3) * 3;
+              const mantissa = value / Math.pow(10, exponent);
+              const mantissaStr = mantissa.toPrecision(digits);
+              const prefix = metricPrefixes[exponent] ?? `e${exponent}`;
+              return `${mantissaStr}${prefix}`.trim();
+            }}
+            });
           series.push({//name: name, 
             xAxisIndex: count, yAxisIndex: count,
                 // mark trigger time
@@ -366,6 +384,7 @@
           series.push({name: name, 
             //markLine: {symbol: ['none', 'pin'],label: { show: false },
             //  data: [{ xAxis: rec.trig }]},
+            emphasis: { focus: 'series' },
             type: 'line', showSymbol: false, clip: true, data: data});
       
           
@@ -385,7 +404,18 @@
             // time axis
         xAxis: {name: 't(s)', minorTick: {show: true}, minorSplitLine: {show: true}},
             // y axis 
-        yAxis: {name: 'y', minorTick: {show: true}, minorSplitLine: {show: true}},
+        yAxis: {name: 'y', minorTick: {show: true}, minorSplitLine: {show: true},
+            // engineering format
+            axisLabel: { formatter: function (value) {
+              const digits = 3;
+              if (value === 0) return "0";
+              const exponent = Math.floor(Math.log10(Math.abs(value)) / 3) * 3;
+              const mantissa = value / Math.pow(10, exponent);
+              const mantissaStr = mantissa.toPrecision(digits);
+              const prefix = metricPrefixes[exponent] ?? `e${exponent}`;
+              return `${mantissaStr}${prefix}`.trim();
+            }}
+            },
         series: series, // combine all series in one chart
             // zoom feature in chart
         dataZoom: [{type: 'slider', xAxisIndex: 'all', top: 550},{type: 'inside', xAxisIndex: 'all'}],
@@ -415,6 +445,9 @@
     }
     function check_dat(file) {
       return getFileExtension(file.name) === 'dat'
+    }
+    function check_pl4(file) {
+      return getFileExtension(file.name) === 'pl4'
     }
     
     // auxiliary functions - read local files
@@ -665,6 +698,122 @@
       }
     }
     
+ 
+    // read simulated transient data PL4 files
+    // according PISA PL4 time domain format - output of ATP/EMTP
+    async function read_pl4(osc_obj) {
+      
+      const dat_c = await readFileAsBinary(osc_obj.dat_f);
+      const view = new DataView(dat_c, 0);
+      
+      if(osc_obj.dat_f.size < 112) return; // 7 rows of 16 bytes - error
+      
+      let offset = 0;
+      let value = view.getUint8(offset);
+      if ( value != 0x84 ) return; // error
+      offset ++;
+      
+      let head_len = 0;
+      for ( let i = 1; i < 32; i++ ){
+        value = view.getUint8(i);
+        if ( value == 0x0f || value == 0  ){
+          if ( i > 1) head_len = i - 1;
+          break;
+        }
+      }
+      
+      const head = new Uint8Array(view.buffer, view.byteOffset + 1, head_len);
+      const decoder = new TextDecoder();
+      
+      osc_obj.id = decoder.decode(head);
+      osc_obj.ver = 'pl4';
+      
+      offset += 35;
+      let tmax = view.getFloat32(offset, true);
+      offset += 4;
+      let delta_t = view.getFloat32(offset, true);
+      offset += 8;
+      let n_chA = view.getUint32(offset, true) / 2;
+      offset += 8;
+      let size = view.getUint32(offset, true);
+      offset += 24;
+      
+      if(size < osc_obj.dat_f.size) return; // error
+      size--;
+      
+      osc_obj.channels_A = n_chA;
+      osc_obj.channels_D = 0;
+      osc_obj.channels = [];
+      
+      
+      // sweep channels
+      for ( let i = 0; i < n_chA; i++ ){
+        
+        ch = {type: "A"};
+        ch.idx = i + 1; // channel index, starts in 1
+        // ignore 3 bytes padded with spaces
+        const n1 = new Uint8Array(view.buffer, view.byteOffset + offset + 4, 6);
+        const n2 = new Uint8Array(view.buffer, view.byteOffset + offset + 10, 6);
+        let typ = "?"; let un = '-';
+        switch (view.getUint8(offset + 3)) {
+          case 50:
+            typ = "TACS";
+            break;
+          case 51:
+            typ = "MOD";
+            break;
+          case 52:
+            typ = "V";
+            un = "V";
+            break;
+          case 55:
+            typ = "E";
+            un = "J";
+            break;
+          case 56:
+            typ = "V";
+            un = "V";
+            break;
+          case 57:
+            typ = "I";
+            un = "A";
+            break;
+        }
+        
+        ch.id = decoder.decode(n1).trim(); // node 1
+        ch.ph = typ; // type
+        ch.c = decoder.decode(n2).trim(); // node 2
+        ch.un = un; // unit of measure
+        // a and b factor, value = a * dat + b, NOT APPLICABLE
+        ch.a = 1;
+        ch.b = 0;
+        ch.sk = 0; // skew, NOT APPLICABLE
+        // min and max numeric values in dat, NOT APPLICABLE
+        ch.min = 0;
+        ch.max = 0;
+        
+        osc_obj.channels.push(ch);
+        offset += 16;
+      }
+      
+      // calcule number of samples in file
+      osc_obj.n_smp = (size - 80 - n_chA * 16) / ((n_chA +1) * 4);
+      
+      // init out matrix
+      osc_obj.data = Array(osc_obj.n_smp).fill(NaN);
+      
+      for(let i = 0; i < osc_obj.n_smp; i++){ // sweep samples
+        osc_obj.data[i] = Array(n_chA + 2).fill(NaN); // init output vector
+        osc_obj.data[i][0] = i + 1; // index
+        for(let j = 0; j < n_chA + 1; j++){ // sweep 32 bits "words" in sample data
+          osc_obj.data[i][j+1] = view.getFloat32(offset, true);
+          offset += 4; // word len
+        }
+      }
+      
+      return osc_obj;
+    }
+    
     // populate list of channels, when one record is selected
     function populate_channels(idx) {
       channels_grid.clear(); // clear previous
@@ -705,7 +854,8 @@
       composer_grid.clear();
       comp_idx = 1;
       const cfgs = Array.from(event.target.files).filter(check_cfg) // get CFG files
-      const dats = Array.from(event.target.files).filter(check_dat) // det DAT files
+      const dats = Array.from(event.target.files).filter(check_dat) // get DAT files
+      const pl4s = Array.from(event.target.files).filter(check_pl4) // get DAT files
       
       // associate CFG and DAT files
       osc = {};
@@ -753,8 +903,34 @@
           function(value) { /* code if error */ }
         );
       
+        
         //console.log(osc[key]);
           
+      }
+      for(const pl4 of pl4s) {
+        let pl4_name = pl4.name.slice(0, pl4.name.lastIndexOf('.'));
+        if (pl4.size < 50 * 1024 * 1024) { // verify size - 50 MB limit
+          recid++;
+          osc[recid] = {recid: recid, name: pl4_name, dat_f: pl4, trig: -1}; // add to list
+          let prom = read_pl4(osc[recid]); // parse file
+          prom.then(
+            function(value) { /*  parse success */
+              recs_grid.add([{ // add to grid
+                'recid': value.recid, 'name': value.name, 'id': value.id,
+                'an': value.channels_A, 'dig': value.channels_D,
+                'smp': value.n_smp,
+                'trig': '-',
+                'start': '-',
+                'freq': '-',
+                'typ': 'binary','ver': 'pl4'
+              }]);
+              //console.log(value);
+            },
+            function(value) { /* code if error */ }
+          );
+          
+        }
+        
       }
      
       
