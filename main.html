@@ -478,24 +478,24 @@
       // first open CFG file as text (always) to get general parameters of record
       const cfg_c = await readFileAsText(osc_obj.cfg_f);
       const lines = cfg_c.split(/\r?\n/); // Split file content into lines
-      if (lines.length < 9) return; //error
+      if (lines.length < 9) throw new Error('Fail'); //error
         
       const ident = lines[0].split(','); // Read the first line
-      if (ident.length < 2) return; //error
+      if (ident.length < 2) throw new Error('Fail'); //error
       // get header identification and standard version
-      osc_obj.id = ident[0];
+      osc_obj.id = ident[0].trim();
       if (ident.length > 2) osc_obj.ver = parseInt(ident[2]);
       else osc_obj.ver = 1991;
       
       // get number of total channels, analog and digital channels
       const channels = lines[1].split(',');
-      if (channels.length < 3) return; //error
+      if (channels.length < 3) throw new Error('Fail'); //error
       let n_ch = parseInt(channels[0]);
       let n_chA = parseInt(channels[1]);
       let n_chD = parseInt(channels[2]);
-      if (n_chA + n_chD != n_ch) return; //error
+      if (n_chA + n_chD != n_ch) throw new Error('Fail'); //error
       
-      if (lines.length < 8 + n_ch) return; //error
+      if (lines.length < 8 + n_ch) throw new Error('Fail'); //error
       
       osc_obj.channels_A = n_chA;
       osc_obj.channels_D = n_chD;
@@ -507,10 +507,10 @@
         const ch_info = lines[line].split(',');
         ch = {type: "A"};
         ch.idx = parseInt(ch_info[0]); // channel index, starts in 1
-        ch.id = ch_info[1]; // main identification
-        ch.ph = ch_info[2]; // phase id
-        ch.c = ch_info[3]; // component or circuit id
-        ch.un = ch_info[4]; // unit of measure
+        ch.id = ch_info[1].trim(); // main identification
+        ch.ph = ch_info[2].trim(); // phase id
+        ch.c = ch_info[3].trim(); // component or circuit id
+        ch.un = ch_info[4].trim(); // unit of measure
         // a and b factor, value = a * dat + b
         ch.a = parseFloat(ch_info[5]);
         ch.b = parseFloat(ch_info[6]);
@@ -526,7 +526,7 @@
         const ch_info = lines[line].split(',');
         ch = {type: "D"};
         ch.idx = parseInt(ch_info[0]); // channel index, starts in 1, not continues from analog
-        ch.id = ch_info[1]; // main identification
+        ch.id = ch_info[1].trim(); // main identification
         ch.st = parseInt(ch_info[ch_info.length - 1]); // standard value for channel (0 or 1)
         
         osc_obj.channels.push(ch);
@@ -590,7 +590,7 @@
       osc_obj.trig = Math.abs((osc_obj.start.time.s % 1) - (osc_obj.first.time.s % 1) + d_dif);
       
       // get type of DAT file
-      let dat_type = lines[line].toLowerCase();
+      let dat_type = lines[line].toLowerCase().trim();
       osc_obj.dat_type = dat_type;
       
       // -------- Read the DAT file contents ------
@@ -609,7 +609,7 @@
         const bytes_rec = chD_words * 2 + n_chA * an_len + 8; // total size of each sample in bytes
         const bytes_total = osc_obj.n_smp * bytes_rec; // total file size
         
-        if(osc_obj.dat_f.size < bytes_total) return; //error
+        if(osc_obj.dat_f.size < bytes_total) throw new Error('Fail'); //error
         
         const dat_c = await readFileAsBinary(osc_obj.dat_f);
         const view = new DataView(dat_c, 0);
@@ -696,6 +696,7 @@
           }
         }
       }
+      return osc_obj;
     }
     
  
@@ -706,11 +707,11 @@
       const dat_c = await readFileAsBinary(osc_obj.dat_f);
       const view = new DataView(dat_c, 0);
       
-      if(osc_obj.dat_f.size < 112) return; // 7 rows of 16 bytes - error
+      if(osc_obj.dat_f.size < 112) throw new Error('Fail'); // 7 rows of 16 bytes - error
       
       let offset = 0;
       let value = view.getUint8(offset);
-      if ( value != 0x84 ) return; // error
+      if ( value != 0x84 ) throw new Error('Fail'); // error
       offset ++;
       
       let head_len = 0;
@@ -738,7 +739,7 @@
       let size = view.getUint32(offset, true);
       offset += 24;
       
-      if(size < osc_obj.dat_f.size) return; // error
+      if(size < osc_obj.dat_f.size) throw new Error('Fail'); // error
       size--;
       
       osc_obj.channels_A = n_chA;
@@ -878,33 +879,33 @@
         prom.then(
           function(value) { /*  parse success */
             // convert date/time info to string
-            let start = osc[key].first.date.d + '/';
-            start += osc[key].first.date.m + '/';
-            start += osc[key].first.date.y + '-';
-            start += osc[key].first.time.h + ':';
-            start += osc[key].first.time.m + ':';
-            start += osc[key].first.time.s;
-            let trig = osc[key].start.date.d + '/';
-            trig += osc[key].start.date.m + '/';
-            trig += osc[key].start.date.y + '-';
-            trig += osc[key].start.time.h + ':';
-            trig += osc[key].start.time.m + ':';
-            trig += osc[key].start.time.s;
+            let start = value.first.date.d + '/';
+            start += value.first.date.m + '/';
+            start += value.first.date.y + '-';
+            start += value.first.time.h + ':';
+            start += value.first.time.m + ':';
+            start += value.first.time.s;
+            let trig = value.start.date.d + '/';
+            trig += value.start.date.m + '/';
+            trig += value.start.date.y + '-';
+            trig += value.start.time.h + ':';
+            trig += value.start.time.m + ':';
+            trig += value.start.time.s;
             recs_grid.add([{ // add to grid
-              'recid': key, 'name': osc[key].name, 'id': osc[key].id,
-              'an': osc[key].channels_A, 'dig': osc[key].channels_D,
-              'smp': osc[key].n_smp,
-              'trig': osc[key].trig,
+              'recid': key, 'name': value.name, 'id': value.id,
+              'an': value.channels_A, 'dig': value.channels_D,
+              'smp': value.n_smp,
+              'trig': value.trig,
               'start': start,
-              'freq': osc[key].freq,
-              'typ': osc[key].dat_type,'ver': osc[key].ver
+              'freq': value.freq,
+              'typ': value.dat_type,'ver': value.ver
             }]);
+            //console.log(value);
           },
           function(value) { /* code if error */ }
         );
       
         
-        //console.log(osc[key]);
           
       }
       for(const pl4 of pl4s) {
