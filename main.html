@@ -38,6 +38,7 @@
   <div id="plot_out"><h3 style="text-align:center;">Output</h3></div>
   
   <div id="plot_container"></div>
+  <div id="plot_container2"></div>
   
   <script type="text/javascript" src="w2ui.min.js"></script>
   <script type="text/javascript" src="echarts.min.js"></script>
@@ -62,6 +63,7 @@
     let ch_idx = 0; // current channel index
     let osc = {}; // main record object
     let comp_idx = 1; // id for composed calc
+    let comp_series = []; //series for plot composer
     
     const metricPrefixes = {
       "-24": "y", "-21": "z", "-18": "a", "-15": "f", "-12": "p",
@@ -74,6 +76,9 @@
     let plot_output = echarts.init(document.getElementById('plot_container'), 
       null, {renderer: 'canvas', useDirtyRect: false});
     window.addEventListener('resize', plot_output.resize);
+    let phasor_output = echarts.init(document.getElementById('plot_container2'), 
+      null, {renderer: 'canvas', useDirtyRect: false});
+    window.addEventListener('resize', phasor_output.resize);
     
     // GUI grid to list loaded record files and its parameters
     let recs_grid = new w2grid({
@@ -206,7 +211,9 @@
     // clear all plots
     function plot_clear() {
       plot_output.clear();
+      phasor_output.clear();
       plot_output.resize({height: 50});
+      phasor_output.resize({height: 50});
     }
     
     // plot selected channels, one chart per each
@@ -292,7 +299,9 @@
       
       // make the whole chart object
       plot_output.clear();
+      phasor_output.clear();
       plot_output.resize({height: top + 50});
+      phasor_output.resize({height: 50});
       let plot_option = { animation: false,
         color: [
           '#dd0000',
@@ -325,6 +334,9 @@
         tooltip: {trigger: 'axis'},
       };
       plot_output.setOption(plot_option);
+      
+      //plot_output.off('showTip');
+      plot_output.off('updateAxisPointer');
     }
     
     // pass selected channels to composer plot dialog
@@ -377,9 +389,27 @@
       return {formula: fObj, var_idx: var_idx };
     }
     
+    //evaluate and plot phasors from comp_series at index
+    function phasors_comp(idx){
+      let series = [];
+      for (let i = 0; i < comp_series.length; i++) {
+        //console.log(comp_series[i].name + '=' + comp_series[i].data[idx]);
+        let module = i+1;
+        let angle = (i*30 + idx) % 360;
+        
+        series.push({coordinateSystem: 'polar',
+          name: comp_series[i].name,
+          type: 'line', lineStyle: { width: 5 },
+          symbolSize: 20,
+          data: [{value:[0,0], symbol: 'none'},
+            {value:[module,angle], symbol: 'arrow', symbolRotate: angle-90 }]});
+      }
+      phasor_output.setOption({series: series});
+    }
+    
     // plot evaluated calc result and combinations from composer
     function b_plot_comp() {
-      const series = [];
+      comp_series = [];
       
       let top = 0;  // chart vertical position
       let count = 0;
@@ -402,7 +432,7 @@
           }
           // finish current series config in chart
           let name = ch.tit;
-          series.push({name: name, 
+          comp_series.push({name: name, 
             //markLine: {symbol: ['none', 'pin'],label: { show: false },
             //  data: [{ xAxis: rec.trig }]},
             emphasis: { focus: 'series' },
@@ -418,6 +448,7 @@
       
       // make the whole chart object
       plot_output.clear();
+      phasor_output.clear();
       plot_output.resize({height: 600});
       
       let plot_option = { animation: false,
@@ -444,7 +475,13 @@
         ],
         grid: {top: 0,left: 60, height: 500}, // huge chart
             // time axis
-        xAxis: {name: 't(s)', minorTick: {show: true}, minorSplitLine: {show: true}},
+        xAxis: {name: 't(s)', minorTick: {show: true}, minorSplitLine: {show: true},
+          axisPointer: {
+            handle: {show: true, size: 30, margin: 20},
+            lineStyle: {color: '#7581BD', width: 2},
+            snap: true, label: {show: false}, value: 0
+          }
+        },
             // y axis 
         yAxis: {name: 'y', minorTick: {show: true}, minorSplitLine: {show: true},
             // engineering format
@@ -458,12 +495,101 @@
               return `${mantissaStr}${prefix}`.trim();
             }}
             },
-        series: series, // combine all series in one chart
+        series: comp_series, // combine all series in one chart
             // zoom feature in chart
         dataZoom: [{type: 'slider', xAxisIndex: 'all', top: 550},{type: 'inside', xAxisIndex: 'all'}],
-        tooltip: {trigger: 'axis'},
+        tooltip: {triggerOn: 'none'},
       };
       plot_output.setOption(plot_option);
+      
+      //phasor plot
+      
+      let phasor_option = {animation: false,
+        color: [
+          '#dd0000',
+          '#0000aa',
+          '#000000',
+          '#aa00aa',
+          '#00aaaa',
+          '#777777',
+          '#00aa00',
+          '#888800',
+          '#4e1609',
+          '#fe5a1d',
+          '#e0218a',
+          '#556b2f',
+          '#c23531',
+          '#2f4554',
+          '#61a0a8',
+          '#d48265',
+          '#648c11',
+          '#836953',
+          '#3b444b'
+        ],
+        title: {
+          text: 'Phasors'
+        },
+        polar: {},
+        tooltip: {
+          //trigger: 'axis',
+          axisPointer: {
+            type: 'cross'
+          },
+          formatter: function (params, ticket, callback) {
+            const { name, value } = params;
+            let s = "";
+            const keys = Object.keys(params);
+            for (const key of keys) {
+                s += key +':'+ params[key] + '<br />';
+              }
+            return params.marker + 
+            '<b>' + echarts.format.encodeHTML(params.seriesName) + '</b><br />' +
+             echarts.format.encodeHTML(value[0].toFixed(2) + '∠' + value[1].toFixed(1)); 
+            
+          }
+        },
+        angleAxis: {
+          type: 'value',
+          startAngle: 0,
+          endAngle: 360,
+          min: 0,
+          max: 360
+        },
+        radiusAxis: {
+          max: function (value) {return value.max * 1.001;}
+        },
+        series: []/*
+          {
+            coordinateSystem: 'polar',
+            name: 'VA',
+            type: 'line',
+            lineStyle: { width: 5 },
+            //showSymbol: false,
+            symbolSize: 20,
+            data: [{value:[0,0], symbol: 'none'},
+              {value:[15,60], symbol: 'arrow', symbolRotate: -30 }]
+          },
+          {
+            coordinateSystem: 'polar',
+            name: 'VB',
+            type: 'line',lineStyle: { width: 5 },
+            //showSymbol: false,
+            symbolSize: 20,
+            data: [{value:[0,0], symbol: 'none'},
+              {value:[10,90], symbol: 'arrow', symbolRotate: 0 }]
+          }
+        ]*/
+      };
+      phasor_output.resize({height: 600});
+      phasor_output.setOption(phasor_option);
+      
+      
+      //plot_output.on('showTip', function (params) {
+      plot_output.on('updateAxisPointer', function (params) {
+        //console.log(params);
+        //console.log(params.dataIndex);
+        phasors_comp(params.dataIndex);
+      });
     }
     
     // auxiliary function - get file ext
