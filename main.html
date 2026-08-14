@@ -395,8 +395,7 @@
       
       // power frequency
       let freq = Number(rec.freq);
-      if (freq <= 0 || freq == NaN) freq = 60;
-      
+      if (freq <= 0 || isNaN(freq)) freq = 60;
       //estimate sample frequency and window points per cycle
       let win = 10;
       if (rec.data.length > 10){
