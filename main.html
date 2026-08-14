@@ -391,20 +391,51 @@
     
     //evaluate and plot phasors from comp_series at index
     function phasors_comp(idx){
-      let series = [];
-      for (let i = 0; i < comp_series.length; i++) {
-        //console.log(comp_series[i].name + '=' + comp_series[i].data[idx]);
-        let module = i+1;
-        let angle = (i*30 + idx) % 360;
-        
-        series.push({coordinateSystem: 'polar',
-          name: comp_series[i].name,
-          type: 'line', lineStyle: { width: 5 },
-          symbolSize: 20,
-          data: [{value:[0,0], symbol: 'none'},
-            {value:[module,angle], symbol: 'arrow', symbolRotate: angle-90 }]});
+      const rec = osc[osc_idx]; // current record
+      
+      // power frequency
+      let freq = Number(rec.freq);
+      if (freq <= 0 || freq == NaN) freq = 60;
+      
+      //estimate sample frequency and window points per cycle
+      let win = 10;
+      if (rec.data.length > 10){
+        let delta = 0;
+        for (let j = 1; j < 11; j++){
+          // index '1' is always the time axis, in seconds
+          delta = delta + (rec.data[j][1] - rec.data[j-1][1]) / 10.0;
+        }
+        win = Math.round((1/freq) / delta);
       }
-      phasor_output.setOption({series: series});
+      
+      let series = [];
+      if (idx - win > 0){
+        //sweep composer series to get data
+        for (let i = 0; i < comp_series.length; i++) {
+          //calcule the DFT of current series, 
+          // based on past sample window from current index
+          let re = 0;
+          let im = 0;
+          const omega = 2 * Math.PI * freq;
+          for (let j = 0; j < win; j++){
+            re = re + Math.cos(comp_series[i].data[idx-j][0] * omega) * comp_series[i].data[idx-j][1] * (1.4142/win);
+            im = im + Math.sin(comp_series[i].data[idx-j][0] * omega) * comp_series[i].data[idx-j][1] * (1.4142/win);
+          }
+          //let module = i+1; //silly test
+          //let angle = (i*30 + idx) % 360;//silly test
+          let module = Math.sqrt(re*re + im*im);
+          let angle = (Math.atan2(im, re) * 180) / Math.PI;
+          
+          // add phasor to plot graph
+          series.push({coordinateSystem: 'polar',
+            name: comp_series[i].name,
+            type: 'line', lineStyle: { width: 5 },
+            symbolSize: 20,
+            data: [{value:[0,0], symbol: 'none'},
+              {value:[module,angle], symbol: 'arrow', symbolRotate: angle-90 }]});
+        }
+      }
+      phasor_output.setOption({series: series}); // update plot graph
     }
     
     // plot evaluated calc result and combinations from composer
@@ -505,6 +536,7 @@
       //phasor plot
       
       let phasor_option = {animation: false,
+        legend: {orient: 'vertical', top: '15%', left: 'left', icon: 'rect'},
         color: [
           '#dd0000',
           '#0000aa',
@@ -526,15 +558,11 @@
           '#836953',
           '#3b444b'
         ],
-        title: {
-          text: 'Phasors'
-        },
-        polar: {},
+        title: { left: 'left', text: 'Phasors' },
+        polar: {center: ['70%', '50%']},
         tooltip: {
           //trigger: 'axis',
-          axisPointer: {
-            type: 'cross'
-          },
+          axisPointer: { type: 'cross'},
           formatter: function (params, ticket, callback) {
             const { name, value } = params;
             let s = "";
@@ -548,43 +576,14 @@
             
           }
         },
-        angleAxis: {
-          type: 'value',
-          startAngle: 0,
-          endAngle: 360,
-          min: 0,
-          max: 360
-        },
-        radiusAxis: {
-          max: function (value) {return value.max * 1.001;}
-        },
-        series: []/*
-          {
-            coordinateSystem: 'polar',
-            name: 'VA',
-            type: 'line',
-            lineStyle: { width: 5 },
-            //showSymbol: false,
-            symbolSize: 20,
-            data: [{value:[0,0], symbol: 'none'},
-              {value:[15,60], symbol: 'arrow', symbolRotate: -30 }]
-          },
-          {
-            coordinateSystem: 'polar',
-            name: 'VB',
-            type: 'line',lineStyle: { width: 5 },
-            //showSymbol: false,
-            symbolSize: 20,
-            data: [{value:[0,0], symbol: 'none'},
-              {value:[10,90], symbol: 'arrow', symbolRotate: 0 }]
-          }
-        ]*/
+        angleAxis: { type: 'value', startAngle: 0, endAngle: 360,
+          min: 0, max: 360 },
+        radiusAxis: { max: function (value) {return value.max * 1.001;}},
+        series: []
       };
-      phasor_output.resize({height: 600});
+      phasor_output.resize({height: 300});
       phasor_output.setOption(phasor_option);
       
-      
-      //plot_output.on('showTip', function (params) {
       plot_output.on('updateAxisPointer', function (params) {
         //console.log(params);
         //console.log(params.dataIndex);
